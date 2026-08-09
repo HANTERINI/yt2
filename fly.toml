@@ -1,0 +1,57 @@
+# Fly.io configuration for Invidious
+# Docs: https://fly.io/docs/reference/configuration/
+#
+# Build uses the official Dockerfile at docker/Dockerfile (multi-stage, static Crystal binary).
+# PostgreSQL is NOT run inside this app — provision a separate Fly Postgres cluster
+# and point INVIDIOUS_CONFIG.db.host at it (see DEPLOY.md).
+
+app = "invidious"
+primary_region = "fra"
+
+[build]
+  dockerfile = "docker/Dockerfile"
+
+[env]
+  # Minimal config; full config is injected via the INVIDIOUS_CONFIG secret.
+  # check_tables: true lets Invidious auto-create any missing tables/columns
+  # on boot, so you don't strictly need to run config/sql/*.sql manually.
+  INVIDIOUS_CONFIG = """
+db:
+  dbname: invidious
+  user: kemal
+  password: REPLACE_VIA_SECRET
+  host: REPLACE_VIA_SECRET
+  port: 5432
+check_tables: true
+domain: REPLACE_WITH_YOUR_APP_NAME.fly.dev
+https_only: true
+hmac_key: REPLACE_WITH_RANDOM_SECRET
+"""
+
+# Invidious listens on 3000 (see docker/Dockerfile EXPOSE).
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[http_service.concurrency]
+  type = "requests"
+  soft_limit = 100
+  hard_limit = 250
+
+# Matches the upstream docker-compose healthcheck.
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "60s"
+  method = "get"
+  path = "/api/v1/stats"
+  protocol = "http"
+
+# Invidious is a long-running server with a DB connection pool.
+# Give it a bit of memory — Crystal static binary + rsvg-convert for thumbnails.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
